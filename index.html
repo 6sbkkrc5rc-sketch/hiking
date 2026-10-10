@@ -81,6 +81,8 @@ header {
     border-radius: 12px;
     padding: 11px 14px;
     font-weight: 700;
+    margin-right: 6px;
+    margin-top: 6px;
 }
 .grid {
     display: grid;
@@ -129,7 +131,7 @@ header {
 input {
     width: 100%;
     padding: 13px;
-    border: 1px solid #d5ddd8;
+    border: 地圖1px solid #d5ddd8;
     border-radius: 12px;
     font-size: 16px;
     margin-bottom: 10px;
@@ -297,7 +299,35 @@ let locating = false;
 let mapCentered = false;
 
 /* ==============================
-   初始化地圖
+   安全儲存 / 讀取（避開 localStorage 例外）
+============================== */
+function safeGetRecords() {
+    try {
+        return JSON.parse(
+            localStorage.getItem("hikingRecords") || "[]"
+        );
+    } catch (e) {
+        console.warn("讀取紀錄失敗：", e);
+        return [];
+    }
+}
+function safeSaveRecords(records) {
+    try {
+        localStorage.setItem(
+            "hikingRecords",
+            JSON.stringify(records)
+        );
+        console.log("✅ 已寫入 localStorage，共 " + records.length + " 筆");
+        return true;
+    } catch (e) {
+        console.error("❌ 寫入 localStorage 失敗：", e);
+        alert("儲存失敗：" + e.message);
+        return false;
+    }
+}
+
+/* ==============================
+   初始化
 ============================== */
 function initMap() {
     map = L.map("map", {
@@ -315,7 +345,6 @@ function initMap() {
 
     routeLine = L.polyline([], { weight: 5 }).addTo(map);
 
-    /* 等容器 layout 完成再定位，避免 Leaflet 尺寸為 0 */
     setTimeout(function () {
         map.invalidateSize();
         locateUser();
@@ -327,48 +356,35 @@ function initMap() {
 ============================== */
 function locateUser() {
     if (!navigator.geolocation) {
-        showStatus(
-            "❌ 此裝置不支援 GPS 定位",
-            "danger"
-        );
+        showStatus("❌ 此裝置不支援 GPS 定位", "danger");
         return;
     }
     if (locating) return;
     locating = true;
 
-    showStatus(
-        "📍 正在取得目前位置...",
-        "warning"
-    );
+    showStatus("📍 正在取得目前位置...", "warning");
 
     navigator.geolocation.getCurrentPosition(
         function (position) {
             locating = false;
             updatePosition(position);
-            showStatus(
-                "📍 已取得目前位置",
-                ""
-            );
+            showStatus("📍 已取得目前位置", "");
         },
         function (error) {
             locating = false;
             let message = "";
             switch (error.code) {
                 case 1:
-                    message =
-                        "❌ 定位權限被拒絕。請到手機「設定 → 應用程式 → 瀏覽器/Koder → 權限」開啟定位。";
+                    message = "❌ 定位權限被拒絕。請到設定開啟定位權限。";
                     break;
                 case 2:
-                    message =
-                        "❌ 找不到位置。請確認手機「定位服務」已開啟，並到戶外或窗邊再試。";
+                    message = "❌ 找不到位置。請確認定位服務已開啟。";
                     break;
                 case 3:
-                    message =
-                        "❌ 定位逾時。請到空曠處或窗邊，並確認網路連線正常。";
+                    message = "❌ 定位逾時。請到空曠處或窗邊再試。";
                     break;
                 default:
-                    message =
-                        "❌ GPS 定位發生錯誤，請稍後再試。";
+                    message = "❌ GPS 定位發生錯誤。";
             }
             showStatus(message, "danger");
         },
@@ -394,30 +410,21 @@ function startHiking() {
     totalDistance = 0;
     lastMovementTime = Date.now();
     routeLine.setLatLngs([]);
-    document.getElementById(
-        "startBtn"
-    ).classList.add("hidden");
-    document.getElementById(
-        "stopBtn"
-    ).classList.remove("hidden");
-    showStatus(
-        "🥾 登山紀錄進行中",
-        ""
+    document.getElementById("startBtn").classList.add("hidden");
+    document.getElementById("stopBtn").classList.remove("hidden");
+    document.getElementById("distance").textContent = "0.00 km";
+    document.getElementById("time").textContent = "00:00:00";
+    showStatus("🥾 登山紀錄進行中", "");
+    timerID = setInterval(updateTimer, 1000);
+    watchID = navigator.geolocation.watchPosition(
+        updatePosition,
+        gpsError,
+        {
+            enableHighAccuracy: true,
+            maximumAge: 10000,
+            timeout: 30000
+        }
     );
-    timerID = setInterval(
-        updateTimer,
-        1000
-    );
-    watchID =
-        navigator.geolocation.watchPosition(
-            updatePosition,
-            gpsError,
-            {
-                enableHighAccuracy: true,
-                maximumAge: 10000,
-                timeout: 30000
-            }
-        );
     startInactivityCheck();
 }
 
@@ -425,96 +432,54 @@ function startHiking() {
    GPS 更新
 ============================== */
 function updatePosition(position) {
-    const lat =
-        position.coords.latitude;
-    const lng =
-        position.coords.longitude;
-    const altitude =
-        position.coords.altitude;
-    const speed =
-        position.coords.speed;
+    const lat = position.coords.latitude;
+    const lng = position.coords.longitude;
+    const altitude = position.coords.altitude;
+    const speed = position.coords.speed;
     const current = {
         lat: lat,
         lng: lng,
         altitude: altitude,
-        time: new Date()
+        time: new Date().toISOString()
     };
 
-    /* 保存最新 GPS 位置 */
     lastPosition = current;
 
-    document.getElementById(
-        "lat"
-    ).textContent = lat.toFixed(6);
-    document.getElementById(
-        "lng"
-    ).textContent = lng.toFixed(6);
-    document.getElementById(
-        "altitude"
-    ).textContent =
-        altitude !== null
-        ? altitude.toFixed(0) + " m"
-        : "-- m";
-    document.getElementById(
-        "speed"
-    ).textContent =
-        speed !== null
-        ? (speed * 3.6).toFixed(1) + " km/h"
-        : "-- km/h";
+    document.getElementById("lat").textContent = lat.toFixed(6);
+    document.getElementById("lng").textContent = lng.toFixed(6);
+    document.getElementById("altitude").textContent =
+        altitude !== null ? altitude.toFixed(0) + " m" : "-- m";
+    document.getElementById("speed").textContent =
+        speed !== null ? (speed * 3.6).toFixed(1) + " km/h" : "-- km/h";
 
-    /* 地圖 Marker */
     if (!marker) {
         marker = L.marker([lat, lng]).addTo(map);
-        map.setView(
-            [lat, lng],
-            hiking ? 17 : 15
-        );
+        map.setView([lat, lng], hiking ? 17 : 15);
         mapCentered = true;
     } else {
         marker.setLatLng([lat, lng]);
         if (!mapCentered) {
-            map.setView(
-                [lat, lng],
-                hiking ? 17 : 15
-            );
+            map.setView([lat, lng], hiking ? 17 : 15);
             mapCentered = true;
         }
     }
 
-    /* 如果正在登山 */
     if (hiking) {
         if (positions.length > 0) {
-            const previous =
-                positions[
-                    positions.length - 1
-                ];
-            const distance =
-                calculateDistance(
-                    previous.lat,
-                    previous.lng,
-                    lat,
-                    lng
-                );
-            /* 過濾 GPS 跳點 */
-            if (
-                distance > 0.005 &&
-                distance < 1
-            ) {
+            const previous = positions[positions.length - 1];
+            const distance = calculateDistance(
+                previous.lat, previous.lng, lat, lng
+            );
+            if (distance > 0.005 && distance < 1) {
                 totalDistance += distance;
-                document.getElementById(
-                    "distance"
-                ).textContent =
-                    totalDistance.toFixed(2)
-                    + " km";
-                lastMovementTime =
-                    Date.now();
+                document.getElementById("distance").textContent =
+                    totalDistance.toFixed(2) + " km";
+                lastMovementTime = Date.now();
             }
         }
         positions.push(current);
         routeLine.setLatLngs(
-            positions.map(
-                p => [p.lat, p.lng]
-            )
+            positions.map(p => [p.lat, p.lng])
         );
     }
 }
@@ -522,35 +487,16 @@ function updatePosition(position) {
 /* ==============================
    計算兩點距離
 ============================== */
-function calculateDistance(
-    lat1,
-    lon1,
-    lat2,
-    lon2
-) {
+function calculateDistance(lat1, lon1, lat2, lon2) {
     const R = 6371;
-    const dLat =
-        (lat2 - lat1)
-        * Math.PI / 180;
-    const dLon =
-        (lon2 - lon1)
-        * Math.PI / 180;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
     const a =
-        Math.sin(dLat / 2)
-        * Math.sin(dLat / 2)
-        +
-        Math.cos(lat1 * Math.PI / 180)
-        *
-        Math.cos(lat2 * Math.PI / 180)
-        *
-        Math.sin(dLon / 2)
-        *
-        Math.sin(dLon / 2);
-    const c =
-        2 * Math.atan2(
-            Math.sqrt(a),
-            Math.sqrt(1 - a)
-        );
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) *
+        Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
 }
 
@@ -558,105 +504,86 @@ function calculateDistance(
    計時器
 ============================== */
 function updateTimer() {
-    if (!startTime)
-        return;
-    const seconds =
-        Math.floor(
-            (Date.now() - startTime.getTime())
-            / 1000
-        );
-    document.getElementById(
-        "time"
-    ).textContent =
+    if (!startTime) return;
+    const seconds = Math.floor(
+        (Date.now() - startTime.getTime()) / 1000
+    );
+    document.getElementById("time").textContent =
         formatTime(seconds);
 }
 function formatTime(seconds) {
-    const h =
-        Math.floor(seconds / 3600);
-    const m =
-        Math.floor(
-            (seconds % 3600) / 60
-        );
-    const s =
-        seconds % 60;
-    return String(h).padStart(2, "0")
-        + ":"
-        + String(m).padStart(2, "0")
-        + ":"
-        + String(s).padStart(2, "0");
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    return String(h).padStart(2, "0") + ":" +
+           String(m).padStart(2, "0") + ":" +
+           String(s).padStart(2, "0");
 }
 
 /* ==============================
-   結束登山
+   結束登山（改用頁面輸入框，不用 prompt）
 ============================== */
 function stopHiking() {
-    if (!hiking)
-        return;
+    if (!hiking) return;
+
     hiking = false;
     endTime = new Date();
+
     if (watchID !== null) {
-        navigator.geolocation.clearWatch(
-            watchID
-        );
+        navigator.geolocation.clearWatch(watchID);
         watchID = null;
     }
     clearInterval(timerID);
     clearInterval(inactivityTimer);
-    document.getElementById(
-        "startBtn"
-    ).classList.remove("hidden");
-    document.getElementById(
-        "stopBtn"
-    ).classList.add("hidden");
-    showStatus(
-        "✅ 登山完成，紀錄已保存",
-        ""
+
+    document.getElementById("startBtn").classList.remove("hidden");
+    document.getElementById("stopBtn").classList.add("hidden");
+    showStatus("✅ 登山完成，正在儲存...", "");
+
+    /* 用頁面輸入框取代 prompt */
+    const defaultName = "我的登山 " +
+        new Date().toLocaleDateString();
+
+    const inputName = window.prompt(
+        "請輸入這次登山名稱",
+        defaultName
     );
-    let name =
-        prompt(
-            "請輸入這次登山名稱",
-            "我的登山 " +
-            new Date().toLocaleDateString()
-        );
-    if (!name)
-        name = "未命名登山";
+
+    /* prompt 被擋時用預設名稱，不讓存檔中斷 */
+    const name = (inputName && inputName.trim())
+        ? inputName.trim()
+        : defaultName;
+
+    console.log("準備儲存紀錄，名稱 =", name);
+    console.log("positions 數量 =", positions.length);
+    console.log("totalDistance =", totalDistance);
+
     const record = {
         id: Date.now(),
         name: name,
-        date:
-            startTime.toLocaleString(),
-        startTime:
-            startTime.toISOString(),
-        endTime:
-            endTime.toISOString(),
-        duration:
-            endTime.getTime()
-            -
-            startTime.getTime(),
-        distance:
-            totalDistance,
-        positions:
-            positions,
-        startPosition:
-            positions.length
-            ? positions[0]
-            : null,
-        endPosition:
-            positions.length
+        date: startTime.toLocaleString(),
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString(),
+        duration: endTime.getTime() - startTime.getTime(),
+        distance: totalDistance,
+        positions: positions,
+        startPosition: positions.length ? positions[0] : null,
+        endPosition: positions.length
             ? positions[positions.length - 1]
             : null
     };
-    const records =
-        JSON.parse(
-            localStorage.getItem(
-                "hikingRecords"
-            ) || "[]"
-        );
+
+    const records = safeGetRecords();
     records.unshift(record);
-    localStorage.setItem(
-        "hikingRecords",
-        JSON.stringify(records)
-    );
+
+    const ok = safeSaveRecords(records);
+
+    if (ok) {
+        showStatus("✅ 紀錄已儲存（共 " + records.length + " 筆）", "");
+    } else {
+        showStatus("⚠️ 儲存失敗，請看 Console", "warning");
+    }
+
     loadRecords();
 }
 
@@ -664,97 +591,68 @@ function stopHiking() {
    登山紀錄
 ============================== */
 function loadRecords() {
-    const records =
-        JSON.parse(
-            localStorage.getItem(
-                "hikingRecords"
-            ) || "[]"
-        );
-    const container =
-        document.getElementById(
-            "records"
-        );
+    const records = safeGetRecords();
+    const container = document.getElementById("records");
+
+    console.log("loadRecords：讀到 " + records.length + " 筆");
+
     if (records.length === 0) {
-        container.innerHTML =
-            "尚無登山紀錄";
+        container.innerHTML = "尚無登山紀錄";
         return;
     }
+
     container.innerHTML = "";
-    records.forEach(
-        function (record) {
-            const div =
-                document.createElement(
-                    "div"
-                );
-            div.className = "record";
-            const duration =
-                formatTime(
-                    Math.floor(
-                        record.duration / 1000
-                    )
-                );
-            const start =
-                record.startPosition;
-            const end =
-                record.endPosition;
-            div.innerHTML = `
-                <div class="record-title">
-                    🏔️ ${escapeHTML(record.name)}
-                </div>
-                <div class="record-detail">
-                    📅 ${record.date}<br>
-                    📏
-                    ${record.distance.toFixed(2)}
-                    km<br>
-                    ⏱️ ${duration}<br>
-                    📍 起點：
-                    ${
-                        start
-                        ?
-                        start.lat.toFixed(6)
-                        + ", "
-                        + start.lng.toFixed(6)
-                        :
-                        "--"
-                    }
-                    <br>
-                    📍 終點：
-                    ${
-                        end
-                        ?
-                        end.lat.toFixed(6)
-                        + ", "
-                        + end.lng.toFixed(6)
-                        :
-                        "--"
-                    }
-                </div>
-                <div class="record-buttons">
-                    <button
-                        class="small-button"
-                        onclick="renameRecord(${record.id})">
-                        ✏️ 改名稱
-                    </button>
-                    <button
-                        class="small-button"
-                        onclick="showRecord(${record.id})">
-                        🗺️ 查看路線
-                    </button>
-                    <button
-                        class="small-button"
-                        onclick="repeatRecord(${record.id})">
-                        🔁 再走一次
-                    </button>
-                    <button
-                        class="small-button"
-                        onclick="deleteRecord(${record.id})">
-                        🗑️ 刪除
-                    </button>
-                </div>
-            `;
-            container.appendChild(div);
-        }
-    );
+    records.forEach(function (record) {
+        const div = document.createElement("div");
+        div.className = "record";
+        const duration = formatTime(
+            Math.floor(record.duration / 1000)
+        );
+        const start = record.startPosition;
+        const end = record.endPosition;
+
+        div.innerHTML = `
+            <div class="record-title">
+                🏔️ ${escapeHTML(record.name)}
+            </div>
+            <div class="record-detail">
+                📅 ${record.date}<br>
+                📏 ${record.distance.toFixed(2)} km<br>
+                ⏱️ ${duration}<br>
+                📍 起點：
+                ${
+                    start
+                    ? start.lat.toFixed(6) + ", " + start.lng.toFixed(6)
+                    : "--"
+                }<br>
+                📍 終點：
+                ${
+                    end
+                    ? end.lat.toFixed(6) + ", " + end.lng.toFixed(6)
+                    : "--"
+                }
+            </div>
+            <div class="record-buttons">
+                <button class="small-button"
+                    onclick="renameRecord(${record.id})">
+                    ✏️ 改名稱
+                </button>
+                <button class="small-button"
+                    onclick="showRecord(${record.id})">
+                    🗺️ 查看路線
+                </button>
+                <button class="small-button"
+                    onclick="repeatRecord(${record.id})">
+                    🔁 再走一次
+                </button>
+                <button class="small-button"
+                    onclick="deleteRecord(${record.id})">
+                    🗑️ 刪除
+                </button>
+            </div>
+        `;
+        container.appendChild(div);
+    });
 }
 
 /* ==============================
@@ -773,30 +671,13 @@ function escapeHTML(text) {
    改名稱
 ============================== */
 function renameRecord(id) {
-    const records =
-        JSON.parse(
-            localStorage.getItem(
-                "hikingRecords"
-            ) || "[]"
-        );
-    const record =
-        records.find(
-            r => r.id === id
-        );
-    if (!record)
-        return;
-    const name =
-        prompt(
-            "請輸入新的名稱",
-            record.name
-        );
-    if (!name)
-        return;
+    const records = safeGetRecords();
+    const record = records.find(r => r.id === id);
+    if (!record) return;
+    const name = prompt("請輸入新的名稱", record.name);
+    if (!name) return;
     record.name = name;
-    localStorage.setItem(
-        "hikingRecords",
-        JSON.stringify(records)
-    );
+    safeSaveRecords(records);
     loadRecords();
 }
 
@@ -804,29 +685,14 @@ function renameRecord(id) {
    查看舊路線
 ============================== */
 function showRecord(id) {
-    const records =
-        JSON.parse(
-            localStorage.getItem(
-                "hikingRecords"
-            ) || "[]"
-        );
-    const record =
-        records.find(
-            r => r.id === id
-        );
-    if (!record || !record.positions.length)
-        return;
-    const points =
-        record.positions.map(
-            p => [p.lat, p.lng]
-        );
+    const records = safeGetRecords();
+    const record = records.find(r => r.id === id);
+    if (!record || !record.positions.length) return;
+    const points = record.positions.map(p => [p.lat, p.lng]);
     routeLine.setLatLngs(points);
-    map.fitBounds(
-        routeLine.getBounds(),
-        {
-            padding: [30, 30]
-        }
-    );
+    map.fitBounds(routeLine.getBounds(), {
+        padding: [30, 30]
+    });
     mapCentered = true;
 }
 
@@ -834,67 +700,30 @@ function showRecord(id) {
    再走一次
 ============================== */
 function repeatRecord(id) {
-    const records =
-        JSON.parse(
-            localStorage.getItem(
-                "hikingRecords"
-            ) || "[]"
-        );
-    const record =
-        records.find(
-            r => r.id === id
-        );
-    if (!record)
-        return;
-    if (
-        !confirm(
-            "要開始重新走這條路線嗎？\n\n"
-            + "原本的紀錄不會被刪除。"
-        )
-    )
-        return;
+    const records = safeGetRecords();
+    const record = records.find(r => r.id === id);
+    if (!record) return;
+    if (!confirm(
+        "要開始重新走這條路線嗎？\n\n原本的紀錄不會被刪除。"
+    )) return;
     routeLine.setLatLngs(
-        record.positions.map(
-            p => [p.lat, p.lng]
-        )
+        record.positions.map(p => [p.lat, p.lng])
     );
-    map.fitBounds(
-        routeLine.getBounds(),
-        {
-            padding: [30, 30]
-        }
-    );
+    map.fitBounds(routeLine.getBounds(), {
+        padding: [30, 30]
+    });
     mapCentered = true;
-    alert(
-        "已載入原本的路線。\n\n"
-        + "現在按「開始登山」即可建立新的紀錄。"
-    );
+    alert("已載入原本的路線。\n\n現在按「開始登山」即可建立新的紀錄。");
 }
 
 /* ==============================
    刪除紀錄
 ============================== */
 function deleteRecord(id) {
-    if (
-        !confirm(
-            "確定要刪除這筆登山紀錄嗎？"
-        )
-    )
-        return;
-    let records =
-        JSON.parse(
-            localStorage.getItem(
-                "hikingRecords"
-            ) || "[]"
-        );
-    records =
-        records.filter(
-            r => r.id !== id
-        );
-    localStorage.setItem(
-        "hikingRecords",
-        JSON.stringify(records)
-    );
+    if (!confirm("確定要刪除這筆登山紀錄嗎？")) return;
+    let records = safeGetRecords();
+    records = records.filter(r => r.id !== id);
+    safeSaveRecords(records);
     loadRecords();
 }
 
@@ -909,10 +738,8 @@ async function getWeather() {
                 getWeather();
             },
             error => {
-                document.getElementById(
-                    "weather"
-                ).innerHTML =
-                    "⚠️ 請先允許 GPS 定位（設定 → 應用程式 → 權限）";
+                document.getElementById("weather").innerHTML =
+                    "⚠️ 請先允許 GPS 定位";
             },
             {
                 enableHighAccuracy: true,
@@ -922,99 +749,52 @@ async function getWeather() {
         );
         return;
     }
-    const lat =
-        lastPosition.lat;
-    const lng =
-        lastPosition.lng;
-    document.getElementById(
-        "weather"
-    ).innerHTML =
+    const lat = lastPosition.lat;
+    const lng = lastPosition.lng;
+    document.getElementById("weather").innerHTML =
         "🌦️ 正在取得天氣...";
     try {
         const url =
-            "https://api.open-meteo.com/v1/forecast"
-            +
-            "?latitude=" + lat
-            +
-            "&longitude=" + lng
-            +
-            "&current=temperature_2m,"
-            +
-            "relative_humidity_2m,"
-            +
-            "precipitation,"
-            +
-            "weather_code,"
-            +
-            "wind_speed_10m"
-            +
+            "https://api.open-meteo.com/v1/forecast" +
+            "?latitude=" + lat +
+            "&longitude=" + lng +
+            "&current=temperature_2m," +
+            "relative_humidity_2m," +
+            "precipitation," +
+            "weather_code," +
+            "wind_speed_10m" +
             "&timezone=Asia%2FTaipei";
-        const response =
-            await fetch(url);
-        const data =
-            await response.json();
-        const current =
-            data.current;
-        const code =
-            current.weather_code;
-        const description =
-            weatherDescription(code);
+        const response = await fetch(url);
+        const data = await response.json();
+        const current = data.current;
+        const code = current.weather_code;
+        const description = weatherDescription(code);
         let warning = "";
-        if (
-            current.precipitation > 2
-        ) {
-            warning =
-                "⚠️ 目前降雨較明顯，登山請注意安全。";
+        if (current.precipitation > 2) {
+            warning = "⚠️ 目前降雨較明顯，登山請注意安全。";
         }
-        if (
-            current.wind_speed_10m > 40
-        ) {
-            warning =
-                "⚠️ 目前風速較強，不建議冒險登山。";
+        if (current.wind_speed_10m > 40) {
+            warning = "⚠️ 目前風速較強，不建議冒險登山。";
         }
-        if (
-            code >= 95
-        ) {
-            warning =
-                "🆘 偵測到雷雨天氣，建議立即停止登山。";
+        if (code >= 95) {
+            warning = "🆘 偵測到雷雨天氣，建議立即停止登山。";
         }
-        document.getElementById(
-            "weather"
-        ).innerHTML = `
-            <div class="weather-main">
-                ${description}
-            </div>
+        document.getElementById("weather").innerHTML = `
+            <div class="weather-main">${description}</div>
             <div class="weather-detail">
-                🌡️
-                ${current.temperature_2m} °C
-                <br>
-                💧
-                ${current.relative_humidity_2m} %
-                <br>
-                🌧️
-                ${current.precipitation} mm
-                <br>
-                💨
-                ${current.wind_speed_10m} km/h
+                🌡️ ${current.temperature_2m} °C<br>
+                💧 ${current.relative_humidity_2m} %<br>
+                🌧️ ${current.precipitation} mm<br>
+                💨 ${current.wind_speed_10m} km/h
             </div>
             ${
                 warning
-                ?
-                `<div class="status warning"
-                      style="margin-top:10px">
-                    ${warning}
-                 </div>`
-                :
-                `<div class="status"
-                      style="margin-top:10px">
-                    ✅ 目前沒有偵測到明顯天氣危險
-                 </div>`
+                ? `<div class="status warning" style="margin-top:10px">${warning}</div>`
+                : `<div class="status" style="margin-top:10px">✅ 目前沒有偵測到明顯天氣危險</div>`
             }
         `;
     } catch (error) {
-        document.getElementById(
-            "weather"
-        ).innerHTML =
+        document.getElementById("weather").innerHTML =
             "❌ 天氣資料取得失敗";
     }
 }
@@ -1023,20 +803,13 @@ async function getWeather() {
    天氣代碼
 ============================== */
 function weatherDescription(code) {
-    if (code === 0)
-        return "☀️ 晴朗";
-    if (code <= 3)
-        return "🌤️ 晴時多雲";
-    if (code <= 48)
-        return "🌫️ 有霧";
-    if (code <= 67)
-        return "🌧️ 下雨";
-    if (code <= 77)
-        return "❄️ 降雪";
-    if (code <= 82)
-        return "🌧️ 陣雨";
-    if (code >= 95)
-        return "⛈️ 雷雨";
+    if (code === 0) return "☀️ 晴朗";
+    if (code <= 3) return "🌤️ 晴時多雲";
+    if (code <= 48) return "🌫️ 有霧";
+    if (code <= 67) return "🌧️ 下雨";
+    if (code <= 77) return "❄️ 降雪";
+    if (code <= 82) return "🌧️ 陣雨";
+    if (code >= 95) return "⛈️ 雷雨";
     return "🌦️ 不穩定天氣";
 }
 
@@ -1044,31 +817,16 @@ function weatherDescription(code) {
    兩小時沒有移動
 ============================== */
 function startInactivityCheck() {
-    inactivityTimer =
-        setInterval(
-            checkInactivity,
-            60000
-        );
+    inactivityTimer = setInterval(checkInactivity, 60000);
 }
 function checkInactivity() {
-    if (!hiking)
-        return;
-    const inactive =
-        Date.now()
-        -
-        lastMovementTime;
-    if (
-        inactive >=
-        2 * 60 * 60 * 1000
-    ) {
-        clearInterval(
-            inactivityTimer
-        );
+    if (!hiking) return;
+    const inactive = Date.now() - lastMovementTime;
+    if (inactive >= 2 * 60 * 60 * 1000) {
+        clearInterval(inactivityTimer);
         alert(
-            "🆘 安全提醒\n\n"
-            +
-            "已經超過 2 小時沒有偵測到明顯移動。\n\n"
-            +
+            "🆘 安全提醒\n\n" +
+            "已經超過 2 小時沒有偵測到明顯移動。\n\n" +
             "請確認你目前是否安全。"
         );
         sendSafetyEmail();
@@ -1079,111 +837,46 @@ function checkInactivity() {
    安全 Email
 ============================== */
 function sendSafetyEmail() {
-    const email =
-        localStorage.getItem(
-            "familyEmail"
-        );
+    const email = localStorage.getItem("familyEmail");
     if (!email) {
-        alert(
-            "尚未設定家人 Email。"
-        );
+        alert("尚未設定家人 Email。");
         return;
     }
-    const lat =
-        lastPosition
-        ?
-        lastPosition.lat.toFixed(6)
-        :
-        "--";
-    const lng =
-        lastPosition
-        ?
-        lastPosition.lng.toFixed(6)
-        :
-        "--";
+    const lat = lastPosition ? lastPosition.lat.toFixed(6) : "--";
+    const lng = lastPosition ? lastPosition.lng.toFixed(6) : "--";
     const altitude =
-        lastPosition
-        &&
-        lastPosition.altitude !== null
-        ?
-        lastPosition.altitude.toFixed(0)
-        :
-        "--";
-    const subject =
-        "🆘 登山安全通知";
+        lastPosition && lastPosition.altitude !== null
+        ? lastPosition.altitude.toFixed(0)
+        : "--";
+    const subject = "🆘 登山安全通知";
     const body =
-        "登山安全通知%0D%0A"
-        +
-        "%0D%0A"
-        +
-        "目前可能已超過 2 小時沒有移動。"
-        +
-        "%0D%0A%0D%0A"
-        +
-        "最後位置："
-        +
-        "%0D%0A"
-        +
-        "緯度：" + lat
-        +
-        "%0D%0A"
-        +
-        "經度：" + lng
-        +
-        "%0D%0A"
-        +
-        "高度：" + altitude + " m"
-        +
-        "%0D%0A"
-        +
-        "時間：" +
-        new Date().toLocaleString();
+        "登山安全通知%0D%0A%0D%0A" +
+        "目前可能已超過 2 小時沒有移動。%0D%0A%0D%0A" +
+        "最後位置：%0D%0A" +
+        "緯度：" + lat + "%0D%0A" +
+        "經度：" + lng + "%0D%0A" +
+        "高度：" + altitude + " m%0D%0A" +
+        "時間：" + new Date().toLocaleString();
     window.location.href =
-        "mailto:"
-        +
-        email
-        +
-        "?subject="
-        +
-        encodeURIComponent(subject)
-        +
-        "&body="
-        +
-        body;
+        "mailto:" + email +
+        "?subject=" + encodeURIComponent(subject) +
+        "&body=" + body;
 }
 
 /* ==============================
    家人 Email
 ============================== */
 function saveFamily() {
-    const name =
-        document.getElementById(
-            "familyName"
-        ).value.trim();
-    const email =
-        document.getElementById(
-            "familyEmail"
-        ).value.trim();
+    const name = document.getElementById("familyName").value.trim();
+    const email = document.getElementById("familyEmail").value.trim();
     if (!email) {
-        alert(
-            "請輸入家人 Email"
-        );
+        alert("請輸入家人 Email");
         return;
     }
-    localStorage.setItem(
-        "familyName",
-        name
-    );
-    localStorage.setItem(
-        "familyEmail",
-        email
-    );
-    document.getElementById(
-        "familyStatus"
-    ).textContent =
-        "✅ 已保存安全聯絡人："
-        +
-        (name || email);
+    localStorage.setItem("familyName", name);
+    localStorage.setItem("familyEmail", email);
+    document.getElementById("familyStatus").textContent =
+        "✅ 已保存安全聯絡人：" + (name || email);
 }
 
 /* ==============================
@@ -1193,20 +886,16 @@ function gpsError(error) {
     let message = "";
     switch (error.code) {
         case 1:
-            message =
-                "⚠️ GPS 權限被拒絕。請到手機設定開啟定位權限。";
+            message = "⚠️ GPS 權限被拒絕。";
             break;
         case 2:
-            message =
-                "⚠️ 無法取得位置。請確認定位服務已開啟。";
+            message = "⚠️ 無法取得位置。";
             break;
         case 3:
-            message =
-                "⚠️ 定位逾時。請到空曠處或窗邊再試。";
+            message = "⚠️ 定位逾時。請到空曠處再試。";
             break;
         default:
-            message =
-                "⚠️ GPS 定位失敗，請稍後再試。";
+            message = "⚠️ GPS 定位失敗。";
     }
     showStatus(message, "warning");
 }
@@ -1214,54 +903,28 @@ function gpsError(error) {
 /* ==============================
    狀態
 ============================== */
-function showStatus(
-    message,
-    type
-) {
-    const box =
-        document.getElementById(
-            "statusBox"
-        );
-    box.textContent =
-        message;
-    box.className =
-        "status";
-    if (type)
-        box.classList.add(type);
+function showStatus(message, type) {
+    const box = document.getElementById("statusBox");
+    box.textContent = message;
+    box.className = "status";
+    if (type) box.classList.add(type);
 }
 
 /* ==============================
    初始化
 ============================== */
-window.onload =
-function () {
+window.onload = function () {
     initMap();
     loadRecords();
-    const savedName =
-        localStorage.getItem(
-            "familyName"
-        );
-    const savedEmail =
-        localStorage.getItem(
-            "familyEmail"
-        );
+    const savedName = localStorage.getItem("familyName");
+    const savedEmail = localStorage.getItem("familyEmail");
     if (savedName)
-        document.getElementById(
-            "familyName"
-        ).value =
-            savedName;
+        document.getElementById("familyName").value = savedName;
     if (savedEmail)
-        document.getElementById(
-            "familyEmail"
-        ).value =
-            savedEmail;
+        document.getElementById("familyEmail").value = savedEmail;
     if (savedEmail) {
-        document.getElementById(
-            "familyStatus"
-        ).textContent =
-            "✅ 已設定安全聯絡人："
-            +
-            (savedName || savedEmail);
+        document.getElementById("familyStatus").textContent =
+            "✅ 已設定安全聯絡人：" + (savedName || savedEmail);
     }
 };
 </script>
