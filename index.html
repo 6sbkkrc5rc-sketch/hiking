@@ -13,13 +13,11 @@
 body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Noto Sans TC", "Microsoft JhengHei", sans-serif;
-    background: #f2f6f3;
-    color: #1e2a25;
+    background: #f2f6f3; color: #1e2a25;
 }
 header {
     background: linear-gradient(135deg,#1f6b4f,#3c9b70);
-    color: white;
-    padding: 24px 20px 20px;
+    color: white; padding: 24px 20px 20px;
     border-radius: 0 0 28px 28px;
     box-shadow: 0 5px 18px rgba(0,0,0,.15);
 }
@@ -137,6 +135,7 @@ let inactivityTimer = null;
 let weatherTimer = null;
 let locating = false;
 let mapCentered = false;
+let weatherFetched = false;   // 避免重複自動抓
 
 /* 安全儲存 / 讀取 */
 function safeGetRecords() {
@@ -150,10 +149,9 @@ function safeGetRecords() {
 function safeSaveRecords(records) {
     try {
         localStorage.setItem("hikingRecords", JSON.stringify(records));
-        console.log("✅ 已寫入 localStorage，共 " + records.length + " 筆");
         return true;
     } catch (e) {
-        console.error("❌ 寫入失敗：", e);
+        console.error("寫入失敗：", e);
         alert("儲存失敗：" + e.message);
         return false;
     }
@@ -179,7 +177,7 @@ function initMap() {
     }, 300);
 }
 
-/* 單次定位 */
+/* 單次定位：成功後自動抓天氣 */
 function locateUser() {
     if (!navigator.geolocation) {
         showStatus("❌ 此裝置不支援 GPS 定位", "danger");
@@ -194,7 +192,11 @@ function locateUser() {
             locating = false;
             updatePosition(position);
             showStatus("📍 已取得目前位置", "");
-            getWeather();          // ← 自動抓天氣
+
+            /* 自動抓天氣（延遲 500ms 確保 lastPosition 已寫入） */
+            setTimeout(function () {
+                getWeather();
+            }, 500);
         },
         function (error) {
             locating = false;
@@ -233,7 +235,7 @@ function startHiking() {
     );
 
     startInactivityCheck();
-    startWeatherAutoUpdate();   // ← 啟動天氣自動更新
+    startWeatherAutoUpdate();
 }
 
 /* GPS 更新 */
@@ -323,7 +325,7 @@ function stopHiking() {
     }
     clearInterval(timerID);
     clearInterval(inactivityTimer);
-    stopWeatherAutoUpdate();   // ← 停止天氣自動更新
+    stopWeatherAutoUpdate();
 
     document.getElementById("startBtn").classList.remove("hidden");
     document.getElementById("stopBtn").classList.add("hidden");
@@ -441,8 +443,8 @@ function deleteRecord(id) {
 /* 天氣自動更新 */
 function startWeatherAutoUpdate() {
     if (weatherTimer) return;
-    getWeather();                          // 立即抓一次
-    weatherTimer = setInterval(getWeather, 10 * 60 * 1000); // 每 10 分鐘
+    getWeather();
+    weatherTimer = setInterval(getWeather, 10 * 60 * 1000);
 }
 function stopWeatherAutoUpdate() {
     if (weatherTimer) {
@@ -454,14 +456,9 @@ function stopWeatherAutoUpdate() {
 /* 天氣 */
 async function getWeather() {
     if (!lastPosition) {
-        navigator.geolocation.getCurrentPosition(
-            p => { updatePosition(p); getWeather(); },
-            error => {
-                document.getElementById("weather").innerHTML =
-                    "⚠️ 請先允許 GPS 定位";
-            },
-            { enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 }
-        );
+        console.warn("getWeather：lastPosition 尚未取得");
+        document.getElementById("weather").innerHTML =
+            "⚠️ 尚未取得定位，請稍候...";
         return;
     }
     const lat = lastPosition.lat;
@@ -509,8 +506,9 @@ async function getWeather() {
                 : `<div class="status" style="margin-top:10px">✅ 目前沒有偵測到明顯天氣危險</div>`
             }
         `;
+        console.log("✅ 天氣已更新");
     } catch (error) {
-        console.error("天氣取得失敗：", error);
+        console.error("天氣失敗：", error);
         document.getElementById("weather").innerHTML =
             "❌ 天氣資料取得失敗";
     }
